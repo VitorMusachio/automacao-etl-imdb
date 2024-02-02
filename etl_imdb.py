@@ -117,3 +117,78 @@ for arquivo in arquivos:
 conexao.close()
 
 print("Todos os arquivos foram salvos no banco de dados.")
+
+### CRIAÇÃO DAS TABELAS ANALÍTICAS
+
+analitico_titulos = """
+CREATE TABLE IF NOT EXISTS analitico_titulos AS
+
+WITH 
+participantes AS (
+    SELECT
+        tconst,
+        COUNT(DISTINCT nconst) as qtParticipantes
+    
+    FROM title_principals
+    
+    GROUP BY 1
+)
+
+SELECT
+    tb.tconst,
+    tb.titleType,
+    tb.originalTitle,
+    tb.startYear,
+    tb.endYear,
+    tb.genres,
+    tr.averageRating,
+    tr.numVotes,
+    tp.qtParticipantes
+
+FROM title_basics tb 
+
+LEFT JOIN title_ratings tr
+    ON tr.tconst = tb.tconst
+
+LEFT JOIN participantes tp
+    ON tp.tconst = tb.tconst
+"""
+
+analitico_participantes = """
+CREATE TABLE IF NOT EXISTS analitico_participantes AS
+
+SELECT
+    tp.nconst,
+    tp.tconst,
+    tp.ordering,
+    tp.category,
+    tb.genres
+
+FROM title_principals tp
+
+LEFT JOIN title_basics tb
+    ON tb.tconst = tp.tconst
+"""
+
+#lista de consultas
+queries = [analitico_titulos, analitico_participantes]
+
+#salva as tabelas analíticas no banco de dados
+for query in queries:
+
+    # Diretórios
+    banco_dados = "imdb_data.db"
+    
+    # Conecta ao banco de dados SQLite
+    conexao = sqlite3.connect(banco_dados)
+    
+    # Consulta SQL para contar o número de pessoas participantes por título
+    query = query
+    
+    # Executa a consulta SQL
+    conexao.execute(query)
+    
+    # Fecha a conexão com o banco de dados
+    conexao.close()
+    
+print("Tabelas criadas com sucesso.")
