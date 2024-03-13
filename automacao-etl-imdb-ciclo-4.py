@@ -19,6 +19,8 @@ file_handler.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(file_handler)
 
 def execute_script():
+    print('Início do processo de ETL')
+
     # EXTRAÇÃO DOS DADOS
     base_url = "https://datasets.imdbws.com/"
     arquivos = [
@@ -162,10 +164,24 @@ def execute_script():
 
     queries = [analitico_titulos, analitico_participantes]
 
-    for query in queries:
-        execute_sql_query(query)
+    logging.info("Salvando tabelas anlíticas no banco de dados.")
 
-    logging.info("Tabelas criadas com sucesso.")
+    for query in queries:
+        # Defininfo o banco de dados
+        banco_dados = "imdb_data.db"
+        
+        # Conecta ao banco de dados SQLite
+        conexao = sqlite3.connect(banco_dados)
+        
+        # Executa a consulta SQL
+        conexao.execute(query)
+        
+        # Fecha a conexão com o banco de dados
+        conexao.close()
+
+    logging.info("Tabelas analíticas criadas com sucesso.")
+
+    print('Fim do processo de ETL')
 
 # Agende a execução do script
 schedule.every().day.at("09:00").do(execute_script)
