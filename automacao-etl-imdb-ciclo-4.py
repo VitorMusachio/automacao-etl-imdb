@@ -1,0 +1,168 @@
+import os
+import requests
+import pandas as pd
+import sqlite3
+import logging
+import schedule
+import time
+
+# Configuração do logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def execute_script():
+    # EXTRAÇÃO DOS DADOS
+    base_url = "https://datasets.imdbws.com/"
+    arquivos = [
+        "name.basics.tsv.gz",
+        "title.akas.tsv.gz",
+        "title.basics.tsv.gz",
+        "title.crew.tsv.gz",
+        "title.episode.tsv.gz",
+        "title.principals.tsv.gz",
+        "title.ratings.tsv.gz"
+    ]
+    destino_diretorio = "data"
+
+    os.makedirs(destino_diretorio, exist_ok=True)
+
+    for arquivo in arquivos:
+        url = base_url + arquivo
+        caminho_destino = os.path.join(destino_diretorio, arquivo)
+
+        if not os.path.exists(caminho_destino):
+            logging.info(f"Baixando {arquivo}...")
+            response = requests.get(url)
+
+            if response.status_code == 200:
+                with open(caminho_destino, 'wb') as f:
+                    f.write(response.content)
+                logging.info(f"{arquivo} baixado com sucesso!")
+            else:
+                logging.error(f"Falha ao baixar {arquivo}. Código de status: {response.status_code}")
+        else:
+            logging.info(f"{arquivo} já existe. Pulando o download.")
+
+    logging.info("Download concluído.")
+
+    # TRANSFORMAÇÃO DOS DADOS
+    diretorio_dados = "data"
+    diretorio_tratados = os.path.join(diretorio_dados, "tratados")
+
+    os.makedirs(diretorio_tratados, exist_ok=True)
+
+    arquivos = os.listdir(diretorio_dados)
+
+    for arquivo in arquivos:
+        caminho_arquivo = os.path.join(diretorio_dados, arquivo)
+
+        if os.path.isfile(caminho_arquivo) and arquivo.endswith(".gz"):
+            logging.debug(f"Lendo e tratando o arquivo {arquivo}...")
+
+            df = pd.read_csv(caminho_arquivo, sep='\t', compression='gzip', low_memory=False)
+
+            df.replace({"\\N": None}, inplace=True)
+
+            caminho_destino = os.path.join(diretorio_tratados, arquivo[:-3])
+            df.to_csv(caminho_destino, sep='\t', index=False)
+
+            logging.debug(f"Tratamento concluído para {arquivo}. Arquivo tratado salvo em {caminho_destino}")
+
+    logging.info("Todos os arquivos foram tratados e salvos no diretório 'tratados'.")
+
+    # CARGA DOS DADOS
+    diretorio_tratados = os.path.join("data", "tratados")
+    banco_dados = "imdb_data.db"
+
+    conexao = sqlite3.connect(banco_dados)
+
+    arquivos = os.listdir(diretorio_tratados)
+
+    for arquivo in arquivos:
+        caminho_arquivo = os.path.join(diretorio_tratados, arquivo)
+
+        if os.path.isfile(caminho_arquivo) and arquivo.endswith(".tsv"):
+            df = pd.read_csv(caminho_arquivo, sep='\t', low_memory=False)
+
+            nome_tabela = os.path.splitext(arquivo)[0]
+            nome_tabela = nome_tabela.replace(".", "_").replace("-", "_")
+
+            df.to_sql(nome_tabela, conexao, index=False, if_exists='replace')
+
+            logging.info(f"Arquivo {arquivo} salvo como tabela {nome_tabela} no banco de dados.")
+
+    conexao.close()
+
+    logging.info("Todos os arquivos foram salvos no banco de dados.")
+
+    # CRIAÇÃO DAS TABELAS ANALÍTICAS
+    analitico_titulos = """
+    CREATE TABLE IF NOT EXISTS analitico_titulos AS
+
+    WITH 
+    participantes AS (
+        SELECT
+            tconst,
+            COUNT(DISTINCT nconst) as qtParticipantes
+        
+        FROM title_principals
+        
+        GROUP BY 1
+    )
+
+    SELECT
+        tb.tconst,
+        tb.titleType,
+        tb.originalTitle,
+        tb.startYear,
+        tb.endYear,
+        tb.genres,
+        tr.averageRating,
+        tr.numVotes,
+        tp.qtParticipantes
+
+    FROM title_basics tb 
+
+    LEFT JOIN title_ratings tr
+        ON tr.tconst = tb.tconst
+
+    LEFT JOIN participantes tp
+        ON tp.tconst = tb.tconst
+    """
+
+    analitico_participantes = """
+    CREATE TABLE IF NOT EXISTS analitico_participantes AS
+
+    SELECT
+        tp.nconst,
+        tp.tconst,
+        tp.ordering,
+        tp.category,
+        tb.genres
+
+    FROM title_principals tp
+
+    LEFT JOIN title_basics tb
+        ON tb.tconst = tp.tconst
+    """
+
+    queries = [analitico_titulos, analitico_participantes]
+
+    for query in queries:
+        banco_dados = "imdb_data.db"
+
+        conexao = sqlite3.connect(banco_dados)
+
+        query = query
+
+        conexao.execute(query)
+
+        conexao.close()
+
+    logging.info("Tabelas criadas com sucesso.")
+
+# Agende a execução do script
+schedule.every().day.at("09:00").do(execute_script)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
