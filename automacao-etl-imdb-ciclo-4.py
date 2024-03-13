@@ -5,9 +5,18 @@ import sqlite3
 import logging
 import schedule
 import time
+import shutil
 
 # Configuração do logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+log_format = '%(asctime)s - %(levelname)s - %(message)s'
+logging.basicConfig(level=logging.DEBUG, format=log_format)
+
+# Adicione um manipulador de arquivo ao logger
+log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'script_logs.log')
+file_handler = logging.FileHandler(log_file_path)
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(logging.Formatter(log_format))
+logging.getLogger().addHandler(file_handler)
 
 def execute_script():
     # EXTRAÇÃO DOS DADOS
@@ -31,14 +40,16 @@ def execute_script():
 
         if not os.path.exists(caminho_destino):
             logging.info(f"Baixando {arquivo}...")
-            response = requests.get(url)
+            response = requests.get(url, stream=True)
 
             if response.status_code == 200:
                 with open(caminho_destino, 'wb') as f:
-                    f.write(response.content)
+                    shutil.copyfileobj(response.raw, f)
                 logging.info(f"{arquivo} baixado com sucesso!")
             else:
                 logging.error(f"Falha ao baixar {arquivo}. Código de status: {response.status_code}")
+
+            del response  # Liberar recursos da resposta
         else:
             logging.info(f"{arquivo} já existe. Pulando o download.")
 
@@ -49,8 +60,6 @@ def execute_script():
     diretorio_tratados = os.path.join(diretorio_dados, "tratados")
 
     os.makedirs(diretorio_tratados, exist_ok=True)
-
-    arquivos = os.listdir(diretorio_dados)
 
     for arquivo in arquivos:
         caminho_arquivo = os.path.join(diretorio_dados, arquivo)
@@ -66,6 +75,9 @@ def execute_script():
             df.to_csv(caminho_destino, sep='\t', index=False)
 
             logging.debug(f"Tratamento concluído para {arquivo}. Arquivo tratado salvo em {caminho_destino}")
+
+            # Remova o arquivo baixado após o tratamento
+            os.remove(caminho_arquivo)
 
     logging.info("Todos os arquivos foram tratados e salvos no diretório 'tratados'.")
 
@@ -89,6 +101,9 @@ def execute_script():
             df.to_sql(nome_tabela, conexao, index=False, if_exists='replace')
 
             logging.info(f"Arquivo {arquivo} salvo como tabela {nome_tabela} no banco de dados.")
+
+            # Remova o arquivo tratado após a carga no banco de dados
+            os.remove(caminho_arquivo)
 
     conexao.close()
 
@@ -148,15 +163,7 @@ def execute_script():
     queries = [analitico_titulos, analitico_participantes]
 
     for query in queries:
-        banco_dados = "imdb_data.db"
-
-        conexao = sqlite3.connect(banco_dados)
-
-        query = query
-
-        conexao.execute(query)
-
-        conexao.close()
+        execute_sql_query(query)
 
     logging.info("Tabelas criadas com sucesso.")
 
