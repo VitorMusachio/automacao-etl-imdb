@@ -38,7 +38,7 @@ class ExportFilesOperator(BaseOperator):
             else:
                 self.log.info(f"{filename} já existe. Pulando o download.")
 
-class ProcessFilesOperator(BaseOperator):
+class ProcessFilesOperator(BaseOperator): 
     template_fields = ['source_directory', 'destination_directory', 'file_extension']
 
     @apply_defaults
