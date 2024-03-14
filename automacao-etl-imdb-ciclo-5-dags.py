@@ -1,24 +1,14 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
-from imdb_operators import ExportFilesOperator, ProcessFilesOperator, SaveToDatabaseOperator, CreateAnalyticalTablesOperator
+from automacao-etl-imdb-ciclo-5-operadores import ExportFilesOperator, ProcessFilesOperator, SaveToDatabaseOperator, CreateAnalyticalTablesOperator
 
 # DAG
-args_padrao = {
-    'proprietario': 'airflow',
-    'depende_do_passado': False,
-    'data_inicio': datetime(2024, 3, 13),
-    'enviar_email_em_caso_de_falha': False,
-    'enviar_email_em_caso_de_repeticao': False,
-    'repeticoes': 1,
-    'intervalo_de_repeticao': timedelta(minutes=5),
-}
-
 dag = DAG(
-    'imdb_pipeline',
-    args=args_padrao,
-    descricao='Pipeline do IMDB',
-    intervalo_de_agendamento=timedelta(days=1),
+    dag_id=f"imdb_etl",
+    start_date=datetime(2024,1,1),
+    schedule_interval='@daily', 
+    catchup=False
 )
 
 # Define os diretórios e caminhos necessários
@@ -78,11 +68,51 @@ tarefa_criar_tabelas_analiticas = PythonOperator(
         queries=[
             """
             CREATE TABLE IF NOT EXISTS analitico_titulos AS
-            -- Sua query aqui
+
+            WITH 
+            participantes AS (
+                SELECT
+                    tconst,
+                    COUNT(DISTINCT nconst) as qtParticipantes
+                
+                FROM title_principals
+                
+                GROUP BY 1
+            )
+
+            SELECT
+                tb.tconst,
+                tb.titleType,
+                tb.originalTitle,
+                tb.startYear,
+                tb.endYear,
+                tb.genres,
+                tr.averageRating,
+                tr.numVotes,
+                tp.qtParticipantes
+
+            FROM title_basics tb 
+
+            LEFT JOIN title_ratings tr
+                ON tr.tconst = tb.tconst
+
+            LEFT JOIN participantes tp
+                ON tp.tconst = tb.tconst
             """,
             """
             CREATE TABLE IF NOT EXISTS analitico_participantes AS
-            -- Sua query aqui
+
+            SELECT
+                tp.nconst,
+                tp.tconst,
+                tp.ordering,
+                tp.category,
+                tb.genres
+
+            FROM title_principals tp
+
+            LEFT JOIN title_basics tb
+                ON tb.tconst = tp.tconst
             """
         ],
         database_path=caminho_banco_de_dados,
